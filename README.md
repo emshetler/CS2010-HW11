@@ -1,1 +1,2 @@
 # CS2010-HW11
+Maze 1 - Our first maze that we made involved the yellow block being a level bellow what the turtle concidered to be the ground. We did this with a straight forward maze to begin. We wanted the code to allow the turtle to detect a hole at the start of every move. If it is able to move down, do so and explore that level. Once all of that level is explored and the yellow block is not there, then you want to go back up to the original level and continue on its way.
