@@ -1,0 +1,172 @@
+-- Configuration
+local X_SIZE = 6
+local Y_SIZE = 6
+local Z_SIZE = 6
+
+-- Calculated limits for movement loops
+local X_SIZE_MAX_MOVE = X_SIZE - 1
+local Z_SIZE_MAX_MOVE = Z_SIZE - 1 
+
+-- Define the target and the boundary material
+local TARGET_BLOCK = "minecraft:yellow_concrete"
+local BOUNDARY_BLOCK = "minecraft:glass"
+
+-- Function to check the block in front and return its name
+local function getBlockInFront()
+    local success, block = turtle.inspect()
+    if success then
+        return block.name
+    end
+    return nil
+end
+
+-- Function to check if the target block is found
+local function checkForTarget()
+    local blockName = getBlockInFront()
+    if blockName == TARGET_BLOCK then
+        print("Found " .. TARGET_BLOCK .. ". Stopping exploration.")
+        return true
+    end
+    return false
+end
+
+-- Function to safely move forward (only if the spot is clear)
+local function safeForward()
+    local blockName = getBlockInFront()
+    
+    if blockName == BOUNDARY_BLOCK then
+        print("Error: Hit glass boundary. Dimensions may be incorrect.")
+        return false 
+    end
+    
+    if blockName then 
+        print("Obstruction (" .. blockName .. ") found. Cannot proceed.")
+        return false
+    end
+
+    return turtle.forward()
+end
+
+-- Function to turn around 180 degrees
+local function turnAround()
+    turtle.turnLeft()
+    turtle.turnLeft()
+end
+
+-- Main Exploration Loop
+print("Starting exploration of 6x6x6 interior volume...")
+
+-- Y-axis (Layers)
+for y = 1, Y_SIZE do
+    print("--- Exploring Layer " .. y .. " ---")
+
+    -- Z-axis (Rows)
+    local direction = 1 
+    for z = 1, Z_SIZE do
+        
+        -- X-axis (Columns) - Traverse X_SIZE_MAX_MOVE steps
+        for x = 1, X_SIZE_MAX_MOVE do
+            if checkForTarget() then return end 
+
+            if not safeForward() then
+                print("Movement failed. Exploration stopped prematurely.")
+                return 
+            end
+        end
+
+        -- Move to the next row (along Z-axis)
+        if z < Z_SIZE then
+            
+            -- Turn to face the Z axis movement
+            if direction == 1 then
+                turtle.turnRight()
+            else
+                turtle.turnLeft()
+            end
+
+            -- Move one step (along Z-axis)
+            if not safeForward() then 
+                print("Exploration stopped moving to Z row " .. z+1 .. ".")
+                return
+            end
+
+            -- Turn back to face the next X-axis sweep
+            if direction == 1 then
+                turtle.turnRight()
+            else
+                turtle.turnLeft()
+            end
+            
+            -- Reverse the direction for the next X sweep
+            direction = direction * -1
+        end
+        
+        if checkForTarget() then return end
+    end
+    
+    -- --- RETURN TO ORIGINAL X-Z POSITION ---
+    
+    print("Layer " .. y .. " complete. Returning to origin corner...")
+
+    -- Step 1: Return to the Z=1 line (the starting Z position)
+    -- If Z_SIZE is 6, the turtle is currently at Z=6. It must move back 5 steps.
+    
+    -- Turn to face the Z=1 line (opposite of Z exploration)
+    if direction == 1 then
+        -- Last sweep was Z=6, facing positive X. Turn 180 to face negative Z.
+        turtle.turnRight()
+        turtle.turnRight()
+    else
+        -- Last sweep was Z=6, facing negative X. Turn Left to face negative Z.
+        turtle.turnLeft()
+    end
+
+    -- Move back to Z=1 (Z_SIZE - 1 moves)
+    for i = 1, Z_SIZE_MAX_MOVE do
+        if not turtle.forward() then 
+            print("Failed to return along Z axis.")
+            return
+        end
+    end
+    
+    -- Now at Z=1 line, turn to face the X=1 line (opposite of X exploration)
+    if direction == 1 then
+        -- Was facing negative Z, turn right to face negative X
+        turtle.turnRight()
+    else
+        -- Was facing negative Z, turn left to face negative X
+        turtle.turnLeft()
+    end
+    
+    -- Step 2: Return to the X=1 line (the starting X position)
+    -- The Turtle is at X=6. It must move back 5 steps.
+    for i = 1, X_SIZE_MAX_MOVE do
+        if not turtle.forward() then 
+            print("Failed to return along X axis.")
+            return
+        end
+    end
+
+    -- Step 3: Turn to face the starting direction (positive X)
+    turnAround()
+    
+    -- --- MOVE UP TO NEXT LAYER ---
+    
+    if y < Y_SIZE then
+        print("Moving up to next layer...")
+        
+        -- Move up
+        if not turtle.up() then
+            print("Cannot move up to the next layer. Stuck or hit ceiling.")
+            return
+        end
+        
+        -- Reset direction for the new layer (already set by the final turnAround)
+        direction = 1
+    end
+    
+    if checkForTarget() then return end
+    
+end
+
+print("Exploration finished without finding the target block.")
