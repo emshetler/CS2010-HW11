@@ -1,11 +1,11 @@
 -- Configuration
 local X_SIZE = 6  -- Width (Internal blocks)
-local Y_SIZE = 6  -- Height (Internal blocks)
+local Y_SIZE = 6  -- Height (Layers 1 through 6)
 local Z_SIZE = 6  -- Length (Internal blocks)
 
 -- Calculated limits for movement loops
-local X_SIZE_MAX_MOVE = X_SIZE - 1 -- 5 steps to traverse 6 blocks
-local Z_SIZE_MAX_MOVE = Z_SIZE - 1 -- 5 steps to traverse 6 blocks
+local X_SIZE_MAX_MOVE = X_SIZE - 1 
+local Z_SIZE_MAX_MOVE = Z_SIZE - 1 
 
 -- Define the target and the boundary material
 local TARGET_BLOCK = "minecraft:yellow_concrete"
@@ -55,28 +55,27 @@ local function turnAround()
     turtle.turnLeft()
 end
 
--- Function to return to the Z=1 row and X=1 column position
+-- Function to return to the Z=1 row and X=1 column position (the origin)
+-- This function ensures the turtle is facing the original starting direction (+X) when done.
 local function returnToOrigin(current_z, current_direction)
     print("Returning to the original XZ position...")
     
-    -- 1. Turn back to face the Z=1 wall (opposite of the Z sweep direction)
+    -- 1. Turn back to face the Z=1 wall
     if current_direction == 1 then
-        -- Turtle is facing +X, turn 90 degrees left to face -Z wall
         turtle.turnLeft()
     else
-        -- Turtle is facing -X, turn 90 degrees right to face -Z wall
         turtle.turnRight()
     end
     
-    -- 2. Move back to the Z=1 row
-    for i = 1, current_z - 1 do
+    -- 2. Move back along Z-axis to the Z=1 row
+    for i = 1, Z_SIZE - 1 do
         if not safeForward() then return false end
     end
     
-    -- 3. Turn to face the X=1 wall (opposite of the X sweep direction)
+    -- 3. Turn to face the X=1 wall
     turtle.turnLeft()
     
-    -- 4. Move back to the X=1 column
+    -- 4. Move back along X-axis to the X=1 column
     for i = 1, X_SIZE_MAX_MOVE do
         if not safeForward() then return false end
     end
@@ -88,4 +87,82 @@ local function returnToOrigin(current_z, current_direction)
 end
 
 -- Main Exploration Loop
-print("Starting exploration of 6x
+print("Starting exploration of 6x6x6 interior volume...")
+
+-- Y-axis (Layers)
+for y = 1, Y_SIZE do 
+    print("--- Exploring Layer " .. y .. " ---")
+    
+    local z_position = 1
+    local direction = 1 -- 1 for +X, -1 for -X
+
+    -- Z-axis (Rows)
+    for z_position = 1, Z_SIZE do
+        
+        -- X-axis (Columns) - Traverse X_SIZE_MAX_MOVE steps
+        for x = 1, X_SIZE_MAX_MOVE do
+            
+            if checkForTarget() then return end 
+
+            if not safeForward() then
+                print("Movement failed. Exploration stopped prematurely.")
+                return 
+            end
+        end
+
+        -- Move to the next row (along Z-axis)
+        if z_position < Z_SIZE then
+            
+            -- Serpentine turn: 1. Turn to face Z direction
+            if direction == 1 then
+                turtle.turnRight()
+            else
+                turtle.turnLeft()
+            end
+
+            -- 2. Move one step (along Z-axis)
+            local success = safeForward()
+            if not success then 
+                print("Exploration stopped moving to Z row " .. z_position + 1 .. ".")
+                return
+            end
+
+            -- 3. Turn back to face the next X-axis sweep
+            if direction == 1 then
+                turtle.turnRight()
+            else
+                turtle.turnLeft()
+            end
+            
+            -- 4. Reverse the direction for the next X sweep
+            direction = direction * -1
+        end
+        
+        if checkForTarget() then return end
+
+    end -- End Z loop
+    
+    -- *** RETURN TO ORIGINAL XZ POSITION ***
+    if not returnToOrigin(Z_SIZE, direction) then
+        print("Failed to return to origin point. Stopping.")
+        return
+    end
+
+    -- Move to the next layer (Y-axis)
+    if y < Y_SIZE then
+        print("Moving up to next layer...")
+        
+        -- Move up
+        if not turtle.up() then
+            print("Cannot move up to the next layer. Stuck or hit ceiling.")
+            return
+        end
+        
+        -- Direction is reset to 1 (+X) by returnToOrigin, ready for the next layer.
+    end
+    
+    if checkForTarget() then return end
+    
+end
+
+print("Exploration finished without finding the target block.")
