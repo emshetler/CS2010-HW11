@@ -1,0 +1,235 @@
+-- Configuration: The name of the goal block to detect beneath the turtle.
+local GOAL_BLOCK_NAME = "minecraft:yellow_concrete"
+local DELAY_SECONDS = 0.2 -- Delay between moves for visibility
+
+-- World State Memory - ESSENTIAL FOR EXHAUSTIVE SEARCH
+local x = 0
+local y = 0
+local z = 0 -- Vertical axis (0 is start level, negative is down)
+local dir = 0 -- 0=North (+y), 1=East (+x), 2=South (-y), 3=West (-x)
+
+-- visited[x][y][z] = true. Tracks all visited 3D coordinates.
+local visited = {} 
+-- Stores the sequence of steps taken to enable backtracking. Includes the 'move' type.
+local path_stack = {} 
+
+-- --- Helper Functions ---
+
+-- Checks if the block directly under the turtle is the goal block.
+local function check_goal()
+    local success, block_data = turtle.inspectDown()
+    
+    if success and block_data and block_data.name == GOAL_BLOCK_NAME then
+        print("GOAL: SUCCESS! Standing on the '" .. GOAL_BLOCK_NAME .. "' block.")
+        return true
+    end
+    return false
+end
+
+-- Checks fuel and refuels if needed.
+local function check_fuel()
+    if turtle.getFuelLevel() == 0 then
+        print("FUEL: Low or empty! Attempting to refuel...")
+        -- Assumes fuel item is in slot 1
+        local success, reason = turtle.refuel(1) 
+        if success then
+            print("FUEL: Refuel successful. Current fuel: " .. turtle.getFuelLevel())
+        else
+            print("ERROR: Refuel failed. Reason: " .. (reason or "Unknown"))
+            print("ACTION: Halting. Please ensure fuel is in slot 1.")
+            return false -- Stops the program on critical failure (no fuel and can't refuel)
+        end
+    end
+    return true
+end
+
+-- Sets the current 3D position as visited
+local function mark_visited()
+    visited[x] = visited[x] or {}
+    visited[x][y] = visited[x][y] or {}
+    visited[x][y][z] = true -- Use z for the vertical plane
+end
+
+-- Checks if a 3D coordinate is in the visited table
+local function is_visited(px, py, pz)
+    return visited[px] and visited[px][py] and visited[px][py][pz]
+end
+
+-- Calculates the next (x, y) coordinates for a horizontal move. Z is unchanged.
+local function get_next_horizontal_coords(direction_index, cx, cy)
+    local px, py = cx, cy
+    if direction_index == 0 then py = py + 1 -- North
+    elseif direction_index == 1 then px = px + 1 -- East
+    elseif direction_index == 2 then py = py - 1 -- South
+    elseif direction_index == 3 then px = px - 1 end -- West
+    return px, py
+end
+
+-- Attempts to move forward (horizontal)
+local function move_forward()
+    -- NOTE: 'dir' state must be correct before calling turtle.forward()
+    if turtle.forward() then
+        -- Update the internal state variables after a successful move
+        x, y = get_next_horizontal_coords(dir, x, y) -- Use the already updated 'dir'
+        -- Store the move type in the stack for accurate backtracking
+        table.insert(path_stack, {x = x, y = y, z = z, move = "forward"}) 
+        mark_visited()
+        return true
+    end
+    return false
+end
+
+-- Attempts to move down (vertical)
+local function move_down()
+    if turtle.down() then
+        z = z - 1 -- Z decreases when moving down
+        table.insert(path_stack, {x = x, y = y, z = z, move = "down"})
+        mark_visited()
+        return true
+    end
+    return false
+end
+
+-- Turns the turtle to face a new direction and updates the internal 'dir' state.
+local function turn_to(new_dir)
+    local turns = (new_dir - dir + 4) % 4
+    if turns == 1 then
+        turtle.turnRight()
+    elseif turns == 2 then
+        turtle.turnRight()
+        turtle.turnRight()
+    elseif turns == 3 then
+        turtle.turnLeft()
+    end
+    dir = new_dir -- CRITICAL: Updates the internal state to match physical turtle
+end
+
+-- Determines the direction index (0-3) needed to move from {fx, fy} to {tx, ty}
+local function get_move_direction(fx, fy, tx, ty)
+    local dx = tx - fx
+    local dy = ty - fy
+
+    if dy == 1 and dx == 0 then return 0 -- North
+    elseif dx == 1 and dy == 0 then return 1 -- East
+    elseif dy == -1 and dx == 0 then return 2 -- South
+    elseif dx == -1 and dy == 0 then return 3 -- West
+    end
+    return -1 -- Error/Same Spot
+end
+
+
+-- --- Main Algorithm Logic ---
+
+local function explore_and_move()
+    local current_x, current_y, current_z = x, y, z -- Capture current 3D state
+    
+    -- *** 1. PRIMARY PRIORITY: VERTICAL DESCENT CHECK (Active Downward Choice) ***
+    if not turtle.detectDown() then
+        local px, py, pz = current_x, current_y, current_z - 1
+        if not is_visited(px, py, pz) then
+            print("EXPLORE: New VERTICAL path DOWN found (Hole detection).")
+            move_down()
+            return -- Successful descent move
+        end
+    end
+    
+    -- *** 2. SECONDARY PRIORITY: HORIZONTAL EXPLORATION ***
+    
+    -- FIX IMPLEMENTED HERE: Store the starting direction before checking.
+    local initial_dir = dir
+    local relative_directions = {1, 0, 3, 2} -- Priority: Right, Forward, Left, Back
+    local direction_names = {"Forward", "Right", "Back", "Left"} 
+    
+    for i, rel_dir in ipairs(relative_directions) do
+        local check_dir = (initial_dir + rel_dir) % 4
+        
+        -- Calculate the predicted coordinates for this direction
+        local px, py = get_next_horizontal_coords(check_dir, current_x, current_y)
+        local pz = current_z 
+        
+        -- Temporarily turn the turtle to face the direction we are checking. 
+        -- This updates 'dir' and the physical turtle.
+        turn_to(check_dir) 
+        
+        -- Check if there is a clear, unvisited horizontal path
+        if not turtle.detect() then
+            if not is_visited(px, py, pz) then
+                -- SUCCESS: We found a path. 'dir' is already set correctly to check_dir.
+                local name = direction_names[rel_dir + 1] 
+                print("EXPLORE: New HORIZONTAL path found (" .. name .. " priority: " .. i .. ").")
+                move_forward()
+                return -- Successful exploration move
+            end
+        end
+        
+        -- FAILURE/REJECTED PATH: Reset the turtle's physical direction and 
+        -- internal 'dir' state back to the 'initial_dir' for the next check.
+        turn_to(initial_dir)
+    end
+    
+    -- 3. Backtracking Mechanism (Dead End in 3D)
+    if #path_stack > 1 then
+        print("DEAD END: Retracing steps in 3D to find an unexplored fork.")
+        
+        local last_move = table.remove(path_stack)
+        -- target_point is the coordinates *before* the last successful move
+        local target_point = path_stack[#path_stack] 
+
+        if last_move.move == "forward" then
+            -- Backtrack a horizontal move: Turn to face the previous point and move forward.
+            local backtrack_dir = get_move_direction(x, y, target_point.x, target_point.y)
+            turn_to(backtrack_dir) -- Sets direction for the move
+            turtle.forward()
+            
+        elseif last_move.move == "down" then
+            -- Backtrack a vertical move down: We MUST move UP to reverse the descent.
+            print("BACKTRACK: Moving UP to reverse descent (" .. current_z .. " -> " .. target_point.z .. ").")
+            turtle.up() 
+            
+        end
+        
+        -- Force the internal state to match the new top of the stack for consistency
+        x, y, z = target_point.x, target_point.y, target_point.z
+        
+    elseif #path_stack == 1 then
+        -- ULTIMATE GUARANTEE: We are at the start (0, 0, 0) and have nowhere new to go.
+        print("IDLING: Back at start (0, 0, 0). Fully explored. Performing 360 scan.")
+        turtle.turnRight() 
+        sleep(0.1)
+        turtle.turnRight()
+        sleep(0.1)
+        turtle.turnRight()
+        sleep(0.1)
+        turtle.turnRight()
+    end
+end
+
+-- --- Initialization and Main Loop ---
+
+print("--- Starting 3D DFS Cave Explorer (Downward Priority) ---")
+print("INFO: Target Goal Block is: " .. GOAL_BLOCK_NAME)
+
+-- Initial setup
+mark_visited()
+table.insert(path_stack, {x = x, y = y, z = z, move = "start"})
+
+-- Main loop for movement and checking: ONLY STOPS WHEN GOAL IS FOUND.
+while not check_goal() do
+    if not check_fuel() then
+        -- This is the only way the program can stop besides finding the goal.
+        break 
+    end
+
+    explore_and_move()
+
+    -- Small delay to make the movement visible in-game
+    sleep(DELAY_SECONDS)
+end
+
+-- Final conclusion message
+if check_goal() then
+    print("--- Explorer Program Finished: GOAL REACHED ---")
+else
+    -- Only reached if check_fuel() failed.
+    print("--- Explorer Program Halted: Fuel depletion or unexpected error. ---")
+end
